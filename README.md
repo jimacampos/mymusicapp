@@ -88,6 +88,8 @@ Environment variables (all optional):
 | `DATA_DIR`   | `backend/data`       | Where the DB + covers live               |
 | `DB_PATH`    | `$DATA_DIR/music.db` | SQLite database file                     |
 | `COVERS_DIR` | `$DATA_DIR/covers`   | Cached cover art                         |
+| `FRONTEND_DIST` | `../frontend/dist` | Built UI to serve (override for containers) |
+| `PORT`       | `8000`               | Port uvicorn binds (set by the Docker image) |
 
 ## API
 
@@ -101,3 +103,35 @@ Environment variables (all optional):
 | GET    | `/api/covers/{id}`    | Album cover image                    |
 | POST   | `/api/rescan`         | Re-scan `MUSIC_DIR`                  |
 | GET    | `/api/stats`          | Library counts                       |
+
+## Docker
+
+The repo ships a multi-stage `Dockerfile` that builds the frontend and serves
+it together with the API from one container:
+
+```bash
+docker build -t mymusicapp .
+docker run -p 8000:8000 \
+  -v /path/to/music:/music -e MUSIC_DIR=/music \
+  -v /path/to/data:/data   -e DATA_DIR=/data \
+  mymusicapp
+# open http://localhost:8000  (then click Rescan)
+```
+
+## Deploy to Azure
+
+Run the app on **Azure App Service for Containers** with the library + database
+on **mounted Azure Files shares**, gated by **Easy Auth** (Microsoft Entra ID),
+shipped by the `Deploy to Azure` GitHub Actions workflow.
+
+See **[`deploy/README.md`](deploy/README.md)** for the full walkthrough. In short:
+
+1. `./deploy/azure-setup.sh` — provision RG, ACR, storage + shares, plan, Web App
+2. `./deploy/github-oidc-setup.sh` — create the GitHub OIDC identity, then add the
+   printed secrets/variables under *repo → Settings → Secrets and variables → Actions*
+3. Push to `main` to build + deploy the image
+4. Upload music to the `music` share, then click **Rescan**
+5. `./deploy/easy-auth-setup.sh` — require Entra ID sign-in
+
+> Run a single instance only — SQLite lives on the SMB-mounted `data` share and
+> concurrent writers can corrupt it.

@@ -1,0 +1,20 @@
+# Git / CI
+.git
+.github
+.gitignore
+
+# Python
+backend/.venv/
+backend/data/
+**/__pycache__/
+*.pyc
+
+# Node / build output (frontend is built inside the image)
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# Docs / misc
+.DS_Store
+README.md
+*.md

@@ -201,8 +201,9 @@ def _iter_file(path: str, start: int, end: int):
 
 
 # --- Serve built frontend in "prod" mode ----------------------------------
-# If frontend/dist exists, serve it as static files at the root.
-_FRONTEND_DIST = os.path.join(
+# If frontend/dist exists, serve it as static files at the root. The location
+# can be overridden with FRONTEND_DIST (useful in containers/cloud layouts).
+_FRONTEND_DIST = os.environ.get("FRONTEND_DIST") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"
 )
 if os.path.isdir(_FRONTEND_DIST):
