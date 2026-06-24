@@ -48,11 +48,16 @@ jobs:
         run: |
           REGISTRY="${{ steps.meta.outputs.registry }}"
           TAG="${{ steps.meta.outputs.tag }}"
-          # az acr login's refresh-token flow is unreliable under a federated
-          # service principal; grab an access token and docker login with it.
-          TOKEN="$(az acr login --name "${{ vars.ACR_NAME }}" --expose-token \
-            --output tsv --query accessToken)"
-          echo "$TOKEN" | docker login "$REGISTRY" \
+          # Federated (OIDC) logins have no AAD refresh token, so `az acr login`
+          # fails with CONNECTIVITY_REFRESH_TOKEN_ERROR. Exchange the ARM access
+          # token for an ACR refresh token directly, then docker login with it.
+          AAD_TOKEN="$(az account get-access-token --query accessToken -o tsv)"
+          TENANT="$(az account show --query tenantId -o tsv)"
+          ACR_TOKEN="$(curl -fsS -X POST "https://$REGISTRY/oauth2/exchange" \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -d "grant_type=access_token&service=$REGISTRY&tenant=$TENANT&access_token=$AAD_TOKEN" \
+            | jq -r '.refresh_token')"
+          echo "$ACR_TOKEN" | docker login "$REGISTRY" \
             --username 00000000-0000-0000-0000-000000000000 --password-stdin
           docker build \
             -t "$REGISTRY/$IMAGE_NAME:$TAG" \
