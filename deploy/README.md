@@ -56,6 +56,31 @@ and `az login` first. Edit the variables at the top of each script (names marked
    accounts via *Entra ID → Enterprise applications → Properties: Assignment
    required = Yes*. See the script header for the equivalent Portal click-path.
 
+## Troubleshooting
+
+Problems hit during the initial rollout and how they were fixed (see
+[`AGENTS.md`](../AGENTS.md) for the full detail):
+
+- **`az appservice plan create` fails with "Current Limit (Total VMs): 0".**
+  App Service compute quota is 0 per-region on some subscriptions (e.g. Visual
+  Studio Enterprise). Run `./deploy/find-region.sh` to find a region with quota
+  and re-provision there: `LOCATION=<region> ./deploy/azure-setup.sh`.
+- **CI build fails with a 401 / `CONNECTIVITY_REFRESH_TOKEN_ERROR` on `az acr login`.**
+  Federated OIDC has no refresh token. The workflow builds with `az acr build`
+  instead, which needs **Contributor** on the ACR (granted by
+  `github-oidc-setup.sh`) — `AcrPush` alone is not enough.
+- **Web App shows `ACRTokenRetrievalFailure ... Unauthorized`.** Re-grant
+  `AcrPull` to the Web App's system-assigned identity and restart.
+- **Easy Auth: "Cannot use auth v2 commands when the app is using auth v1."**
+  `easy-auth-setup.sh` clears the legacy v1 config and writes v2 via REST — just
+  run it.
+- **Easy Auth: blank page at `/.auth/login/aad/callback`.** Token audience
+  mismatch — `allowedAudiences` must include the bare client-id GUID, not just
+  `api://<clientId>`. Fixed in `easy-auth-setup.sh`; re-run it.
+- **Easy Auth: `AADSTS650056` "Misconfigured application".** The app
+  registration needs Microsoft Graph `User.Read` + tenant admin consent. Fixed
+  in `easy-auth-setup.sh`; re-run it (admin consent requires Entra admin rights).
+
 ## Notes & caveats
 
 - **Single instance only.** SQLite over SMB (Azure Files) is safe for one
