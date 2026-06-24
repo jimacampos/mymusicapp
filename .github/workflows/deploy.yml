@@ -48,7 +48,12 @@ jobs:
         run: |
           REGISTRY="${{ steps.meta.outputs.registry }}"
           TAG="${{ steps.meta.outputs.tag }}"
-          az acr login --name "${{ vars.ACR_NAME }}"
+          # az acr login's refresh-token flow is unreliable under a federated
+          # service principal; grab an access token and docker login with it.
+          TOKEN="$(az acr login --name "${{ vars.ACR_NAME }}" --expose-token \
+            --output tsv --query accessToken)"
+          echo "$TOKEN" | docker login "$REGISTRY" \
+            --username 00000000-0000-0000-0000-000000000000 --password-stdin
           docker build \
             -t "$REGISTRY/$IMAGE_NAME:$TAG" \
             -t "$REGISTRY/$IMAGE_NAME:latest" .
