@@ -31,9 +31,11 @@ az ad app federated-credential create --id "$APP_ID" --parameters "{
   \"audiences\": [\"api://AzureADTokenExchange\"]
 }" --output none
 
-echo "==> Role assignments (AcrPush on registry, Website Contributor on RG)"
+echo "==> Role assignments (Contributor on registry, Website Contributor on RG)"
 ACR_ID="$(az acr show --name "$ACR_NAME" --query id -o tsv)"
-az role assignment create --assignee "$APP_ID" --role AcrPush --scope "$ACR_ID" --output none
+# Contributor (not just AcrPush) so the workflow can run server-side ACR builds
+# (az acr build), which is the OIDC-friendly way to push images.
+az role assignment create --assignee "$APP_ID" --role Contributor --scope "$ACR_ID" --output none
 az role assignment create --assignee "$APP_ID" --role "Website Contributor" \
   --scope "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}" --output none
 

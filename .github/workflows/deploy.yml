@@ -44,26 +44,13 @@ jobs:
           echo "registry=${{ vars.ACR_NAME }}.azurecr.io" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push image to ACR
+      - name: Build and push image (ACR Tasks)
         run: |
-          REGISTRY="${{ steps.meta.outputs.registry }}"
-          TAG="${{ steps.meta.outputs.tag }}"
-          # Federated (OIDC) logins have no AAD refresh token, so `az acr login`
-          # fails with CONNECTIVITY_REFRESH_TOKEN_ERROR. Exchange the ARM access
-          # token for an ACR refresh token directly, then docker login with it.
-          AAD_TOKEN="$(az account get-access-token --query accessToken -o tsv)"
-          TENANT="$(az account show --query tenantId -o tsv)"
-          ACR_TOKEN="$(curl -fsS -X POST "https://$REGISTRY/oauth2/exchange" \
-            -H 'Content-Type: application/x-www-form-urlencoded' \
-            -d "grant_type=access_token&service=$REGISTRY&tenant=$TENANT&access_token=$AAD_TOKEN" \
-            | jq -r '.refresh_token')"
-          echo "$ACR_TOKEN" | docker login "$REGISTRY" \
-            --username 00000000-0000-0000-0000-000000000000 --password-stdin
-          docker build \
-            -t "$REGISTRY/$IMAGE_NAME:$TAG" \
-            -t "$REGISTRY/$IMAGE_NAME:latest" .
-          docker push "$REGISTRY/$IMAGE_NAME:$TAG"
-          docker push "$REGISTRY/$IMAGE_NAME:latest"
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image "$IMAGE_NAME:${{ steps.meta.outputs.tag }}" \
+            --image "$IMAGE_NAME:latest" \
+            .
 
       - name: Point Web App at the new image
         run: |
