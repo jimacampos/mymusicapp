@@ -1,13 +1,21 @@
-import { SearchResults, api } from "../api";
+import { PlaylistSummary, SearchResults, api } from "../api";
 import { TrackList } from "../components/TrackList";
 
 interface Props {
   query: string;
   results: SearchResults | null;
+  playlists: PlaylistSummary[];
+  onPlaylistsChanged: () => void;
   onOpenAlbum: (id: number) => void;
 }
 
-export function Search({ query, results, onOpenAlbum }: Props) {
+export function Search({
+  query,
+  results,
+  playlists,
+  onPlaylistsChanged,
+  onOpenAlbum,
+}: Props) {
   if (!query.trim()) {
     return <div className="empty">Type to search your library.</div>;
   }
@@ -62,7 +70,12 @@ export function Search({ query, results, onOpenAlbum }: Props) {
       {results.tracks.length > 0 && (
         <section>
           <h2>Tracks</h2>
-          <TrackList tracks={results.tracks} showAlbum />
+          <TrackList
+            tracks={results.tracks}
+            showAlbum
+            playlists={playlists}
+            onPlaylistsChanged={onPlaylistsChanged}
+          />
         </section>
       )}
     </div>

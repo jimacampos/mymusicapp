@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import db
 import scanner
@@ -83,6 +84,122 @@ def search(q: str = Query("", min_length=0)):
     conn = _conn()
     try:
         return db.search(conn, q)
+    finally:
+        conn.close()
+
+
+# --- Playlists ------------------------------------------------------------
+
+class PlaylistCreate(BaseModel):
+    name: str
+
+
+class PlaylistRename(BaseModel):
+    name: str
+
+
+class PlaylistTrackAdd(BaseModel):
+    track_id: int
+
+
+class PlaylistReorder(BaseModel):
+    track_ids: list[int]
+
+
+@app.get("/api/playlists")
+def get_playlists():
+    conn = _conn()
+    try:
+        return db.list_playlists(conn)
+    finally:
+        conn.close()
+
+
+@app.post("/api/playlists", status_code=201)
+def create_playlist(body: PlaylistCreate):
+    conn = _conn()
+    try:
+        try:
+            pid = db.create_playlist(conn, body.name)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return db.get_playlist(conn, pid)
+    finally:
+        conn.close()
+
+
+@app.get("/api/playlists/{playlist_id}")
+def get_playlist(playlist_id: int):
+    conn = _conn()
+    try:
+        playlist = db.get_playlist(conn, playlist_id)
+        if not playlist:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        return playlist
+    finally:
+        conn.close()
+
+
+@app.patch("/api/playlists/{playlist_id}")
+def rename_playlist(playlist_id: int, body: PlaylistRename):
+    conn = _conn()
+    try:
+        try:
+            ok = db.rename_playlist(conn, playlist_id, body.name)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if not ok:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        return db.get_playlist(conn, playlist_id)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/playlists/{playlist_id}", status_code=204)
+def delete_playlist(playlist_id: int):
+    conn = _conn()
+    try:
+        if not db.delete_playlist(conn, playlist_id):
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        return Response(status_code=204)
+    finally:
+        conn.close()
+
+
+@app.post("/api/playlists/{playlist_id}/tracks")
+def add_playlist_track(playlist_id: int, body: PlaylistTrackAdd):
+    conn = _conn()
+    try:
+        if not db.playlist_exists(conn, playlist_id):
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        if not db.track_exists(conn, body.track_id):
+            raise HTTPException(status_code=404, detail="Track not found")
+        db.add_track_to_playlist(conn, playlist_id, body.track_id)
+        return db.get_playlist(conn, playlist_id)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/playlists/{playlist_id}/tracks/{track_id}")
+def remove_playlist_track(playlist_id: int, track_id: int):
+    conn = _conn()
+    try:
+        if not db.playlist_exists(conn, playlist_id):
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        db.remove_track_from_playlist(conn, playlist_id, track_id)
+        return db.get_playlist(conn, playlist_id)
+    finally:
+        conn.close()
+
+
+@app.put("/api/playlists/{playlist_id}/tracks")
+def reorder_playlist_tracks(playlist_id: int, body: PlaylistReorder):
+    conn = _conn()
+    try:
+        if not db.playlist_exists(conn, playlist_id):
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        db.reorder_playlist(conn, playlist_id, body.track_ids)
+        return db.get_playlist(conn, playlist_id)
     finally:
         conn.close()
 

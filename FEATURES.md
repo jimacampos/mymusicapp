@@ -5,6 +5,25 @@ up to date** — see the maintenance note at the bottom.
 
 Newest entries go at the top. Use the date the change was made.
 
+## 2026-06-24 — Playlists
+
+Added user-created playlists, stored server-side in SQLite.
+
+- **New tables:** `playlists` and `playlist_tracks` (FK to `tracks` with
+  `ON DELETE CASCADE`, ordered by `position`). Playlists reference track IDs, so
+  they survive rescans.
+- **REST API:** `GET/POST /api/playlists`, `GET/PATCH/DELETE /api/playlists/{id}`,
+  `POST/DELETE /api/playlists/{id}/tracks`, and `PUT /api/playlists/{id}/tracks`
+  (reorder).
+- **Playlists nav + views:** a **Playlists** button in the topbar opens a list
+  view (create / delete) and a playlist detail view (play, inline rename, remove
+  tracks, reorder with up/down buttons).
+- **Add to playlist:** every track row now has a **"⋯" menu** to add the track to
+  an existing playlist or create a new one on the spot (works from album and
+  search track lists).
+
+---
+
 ## 2026-06-24 — Safari / iPhone mobile UX
 
 Optimized the UI for mobile Safari (tested on iPhone 15).

@@ -46,6 +46,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
     name,
     tokenize = 'unicode61'
 );
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id    INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    PRIMARY KEY (playlist_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pos
+    ON playlist_tracks(playlist_id, position);
 """
 
 
@@ -310,3 +327,166 @@ def stats(conn: sqlite3.Connection) -> Dict[str, int]:
         "albums": conn.execute("SELECT COUNT(*) c FROM albums").fetchone()["c"],
         "tracks": conn.execute("SELECT COUNT(*) c FROM tracks").fetchone()["c"],
     }
+
+
+# --- Playlists ------------------------------------------------------------
+
+def _touch_playlist(conn: sqlite3.Connection, playlist_id: int) -> None:
+    conn.execute(
+        "UPDATE playlists SET updated_at = datetime('now') WHERE id = ?",
+        (playlist_id,),
+    )
+
+
+def list_playlists(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT p.id, p.name, p.created_at, p.updated_at,
+               COUNT(pt.track_id) AS track_count
+        FROM playlists p
+        LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+        GROUP BY p.id
+        ORDER BY p.name COLLATE NOCASE
+        """
+    ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "track_count": r["track_count"],
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+        }
+        for r in rows
+    ]
+
+
+def get_playlist(conn: sqlite3.Connection, playlist_id: int) -> Optional[Dict[str, Any]]:
+    p = conn.execute(
+        "SELECT id, name, created_at, updated_at FROM playlists WHERE id = ?",
+        (playlist_id,),
+    ).fetchone()
+    if not p:
+        return None
+    tracks = conn.execute(
+        TRACK_SELECT
+        + """
+        JOIN playlist_tracks pt ON pt.track_id = t.id
+        WHERE pt.playlist_id = ?
+        ORDER BY pt.position
+        """,
+        (playlist_id,),
+    ).fetchall()
+    return {
+        "id": p["id"],
+        "name": p["name"],
+        "created_at": p["created_at"],
+        "updated_at": p["updated_at"],
+        "tracks": [_track_to_dict(t) for t in tracks],
+    }
+
+
+def create_playlist(conn: sqlite3.Connection, name: str) -> int:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Playlist name is required")
+    cur = conn.execute("INSERT INTO playlists(name) VALUES (?)", (name,))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def rename_playlist(conn: sqlite3.Connection, playlist_id: int, name: str) -> bool:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Playlist name is required")
+    cur = conn.execute(
+        "UPDATE playlists SET name = ?, updated_at = datetime('now') WHERE id = ?",
+        (name, playlist_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def delete_playlist(conn: sqlite3.Connection, playlist_id: int) -> bool:
+    cur = conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def add_track_to_playlist(
+    conn: sqlite3.Connection, playlist_id: int, track_id: int
+) -> None:
+    next_pos = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM playlist_tracks WHERE playlist_id = ?",
+        (playlist_id,),
+    ).fetchone()["pos"]
+    conn.execute(
+        """
+        INSERT INTO playlist_tracks(playlist_id, track_id, position)
+        VALUES (?, ?, ?)
+        ON CONFLICT(playlist_id, track_id) DO NOTHING
+        """,
+        (playlist_id, track_id, next_pos),
+    )
+    _touch_playlist(conn, playlist_id)
+    conn.commit()
+
+
+def remove_track_from_playlist(
+    conn: sqlite3.Connection, playlist_id: int, track_id: int
+) -> None:
+    conn.execute(
+        "DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?",
+        (playlist_id, track_id),
+    )
+    # Compact positions so they stay contiguous.
+    rows = conn.execute(
+        "SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY position",
+        (playlist_id,),
+    ).fetchall()
+    for pos, r in enumerate(rows):
+        conn.execute(
+            "UPDATE playlist_tracks SET position = ? WHERE playlist_id = ? AND track_id = ?",
+            (pos, playlist_id, r["track_id"]),
+        )
+    _touch_playlist(conn, playlist_id)
+    conn.commit()
+
+
+def reorder_playlist(
+    conn: sqlite3.Connection, playlist_id: int, track_ids: List[int]
+) -> None:
+    existing = {
+        r["track_id"]
+        for r in conn.execute(
+            "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?",
+            (playlist_id,),
+        ).fetchall()
+    }
+    # Only reorder tracks that actually belong to the playlist; append any
+    # that the client omitted so nothing is silently dropped.
+    ordered = [tid for tid in track_ids if tid in existing]
+    ordered += [tid for tid in existing if tid not in ordered]
+    for pos, tid in enumerate(ordered):
+        conn.execute(
+            "UPDATE playlist_tracks SET position = ? WHERE playlist_id = ? AND track_id = ?",
+            (pos, playlist_id, tid),
+        )
+    _touch_playlist(conn, playlist_id)
+    conn.commit()
+
+
+def playlist_exists(conn: sqlite3.Connection, playlist_id: int) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)
+        ).fetchone()
+        is not None
+    )
+
+
+def track_exists(conn: sqlite3.Connection, track_id: int) -> bool:
+    return (
+        conn.execute("SELECT 1 FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        is not None
+    )

@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { AlbumDetail, api } from "../api";
+import { AlbumDetail, PlaylistSummary, api } from "../api";
 import { TrackList } from "../components/TrackList";
 import { usePlayer } from "../player";
 
 interface Props {
   albumId: number;
+  playlists: PlaylistSummary[];
+  onPlaylistsChanged: () => void;
   onBack: () => void;
 }
 
-export function Album({ albumId, onBack }: Props) {
+export function Album({ albumId, playlists, onPlaylistsChanged, onBack }: Props) {
   const [album, setAlbum] = useState<AlbumDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const p = usePlayer();
@@ -52,7 +54,11 @@ export function Album({ albumId, onBack }: Props) {
           </button>
         </div>
       </div>
-      <TrackList tracks={album.tracks} />
+      <TrackList
+        tracks={album.tracks}
+        playlists={playlists}
+        onPlaylistsChanged={onPlaylistsChanged}
+      />
     </div>
   );
 }

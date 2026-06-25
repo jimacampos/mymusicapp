@@ -9,6 +9,7 @@ A self-hosted "Spotify for me" — stream your local music library from a web UI
 - Scans a music folder and reads ID3 tags (title, artist, album, track #, year, cover art) via `mutagen`
 - Stores metadata in SQLite with an FTS5 full-text search index
 - Browse albums in a grid, open album detail, search tracks/albums/artists
+- Create **playlists**: add tracks via a "⋯" menu, reorder, rename, and play them
 - Streams audio with **HTTP Range requests** (`206 Partial Content`) so seeking works
 - Persistent player bar: play/pause, seek, next/previous, volume
 - Keyboard shortcuts: `Space` play/pause, `←/→` seek 5s, `Shift+←/→` prev/next
@@ -103,6 +104,14 @@ Environment variables (all optional):
 | GET    | `/api/covers/{id}`    | Album cover image                    |
 | POST   | `/api/rescan`         | Re-scan `MUSIC_DIR`                  |
 | GET    | `/api/stats`          | Library counts                       |
+| GET    | `/api/playlists`      | List playlists                       |
+| POST   | `/api/playlists`      | Create a playlist `{name}`           |
+| GET    | `/api/playlists/{id}` | Playlist detail + ordered tracks     |
+| PATCH  | `/api/playlists/{id}` | Rename a playlist `{name}`           |
+| DELETE | `/api/playlists/{id}` | Delete a playlist                    |
+| POST   | `/api/playlists/{id}/tracks` | Add a track `{track_id}`      |
+| DELETE | `/api/playlists/{id}/tracks/{track_id}` | Remove a track     |
+| PUT    | `/api/playlists/{id}/tracks` | Reorder `{track_ids: [...]}`  |
 
 ## Docker
 
