@@ -13,6 +13,13 @@ TypeScript)** frontend. In production the backend serves the built UI from
 `frontend/dist`, so the whole app runs as **one process / one container**. See
 `README.md` for local dev and the API surface.
 
+## Keeping FEATURES.md updated
+
+`FEATURES.md` (repo root) is a running log of features and notable changes.
+**Whenever you add or meaningfully change a user-facing feature, add a dated
+entry to the top of `FEATURES.md` in the same commit as the change.** Don't let
+it fall behind the code.
+
 ## Deployed architecture (Azure)
 
 ```
