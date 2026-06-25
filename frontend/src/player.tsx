@@ -52,7 +52,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Wire up audio element event listeners once.
   useEffect(() => {
-    const onTime = () => setCurrentTime(audio.currentTime);
+    const onTime = () => {
+      setCurrentTime(audio.currentTime);
+      if (
+        "mediaSession" in navigator &&
+        "setPositionState" in navigator.mediaSession
+      ) {
+        const d = audio.duration;
+        if (Number.isFinite(d) && d > 0) {
+          try {
+            navigator.mediaSession.setPositionState({
+              duration: d,
+              position: Math.min(audio.currentTime, d),
+              playbackRate: audio.playbackRate || 1,
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    };
     const onDuration = () => setDuration(audio.duration || 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
@@ -150,6 +169,86 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const setVolume = useCallback((v: number) => {
     setVolumeState(Math.min(1, Math.max(0, v)));
   }, []);
+
+  // iOS lock screen / Control Center integration (Media Session API).
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => audio.play().catch(() => undefined)],
+      ["pause", () => audio.pause()],
+      ["previoustrack", () => prev()],
+      ["nexttrack", () => next()],
+      [
+        "seekto",
+        (d) => {
+          if (d.seekTime != null) seek(d.seekTime);
+        },
+      ],
+      [
+        "seekbackward",
+        (d) => seek(Math.max(0, audio.currentTime - (d.seekOffset || 10))),
+      ],
+      [
+        "seekforward",
+        (d) =>
+          seek(
+            Math.min(audio.duration || 0, audio.currentTime + (d.seekOffset || 10))
+          ),
+      ],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        /* unsupported action */
+      }
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          ms.setActionHandler(action, null);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [audio, next, prev, seek]);
+
+  // Keep lock screen metadata (title/artist/album/artwork) in sync.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    if (!current) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const artwork =
+      current.album_id != null
+        ? [
+            {
+              src: window.location.origin + api.coverUrl(current.album_id),
+              sizes: "512x512",
+              type: "image/jpeg",
+            },
+          ]
+        : [];
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: current.title || "Unknown",
+      artist: current.artist || "Unknown",
+      album: current.album || "",
+      artwork,
+    });
+  }, [current]);
+
+  // Reflect play/pause state on the lock screen.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = current
+      ? isPlaying
+        ? "playing"
+        : "paused"
+      : "none";
+  }, [isPlaying, current]);
 
   const value = useMemo<PlayerState>(
     () => ({

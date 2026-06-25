@@ -2,6 +2,13 @@ import { useEffect } from "react";
 import { usePlayer } from "../player";
 import { api } from "../api";
 import { formatTime } from "../format";
+import {
+  PlayIcon,
+  PauseIcon,
+  PrevIcon,
+  NextIcon,
+  VolumeIcon,
+} from "./Icons";
 
 export function Player() {
   const p = usePlayer();
@@ -61,7 +68,7 @@ export function Player() {
       <div className="player-center">
         <div className="player-controls">
           <button onClick={p.prev} disabled={!t} title="Previous (Shift+←)">
-            ⏮
+            <PrevIcon />
           </button>
           <button
             className="play-btn"
@@ -69,10 +76,10 @@ export function Player() {
             disabled={!t}
             title="Play/Pause (Space)"
           >
-            {p.isPlaying ? "⏸" : "▶"}
+            {p.isPlaying ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
           </button>
           <button onClick={p.next} disabled={!t} title="Next (Shift+→)">
-            ⏭
+            <NextIcon />
           </button>
         </div>
         <div className="seek-row">
@@ -92,7 +99,9 @@ export function Player() {
       </div>
 
       <div className="player-volume">
-        <span title="Volume">🔊</span>
+        <span title="Volume" className="vol-icon">
+          <VolumeIcon size={18} />
+        </span>
         <input
           type="range"
           min={0}
