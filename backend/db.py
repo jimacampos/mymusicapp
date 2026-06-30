@@ -11,6 +11,14 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(DATA_DIR, "music.db"))
 COVERS_DIR = os.environ.get("COVERS_DIR", os.path.join(DATA_DIR, "covers"))
 
+# WAL improves read/write concurrency locally, but it is unreliable on the
+# SMB-mounted Azure Files share used in production (see AGENTS.md), so it is
+# opt-out by default there. Set SQLITE_WAL=1 to force it on.
+_WAL_ENABLED = os.environ.get("SQLITE_WAL", "0") == "1"
+# Wait up to this long (ms) for a competing writer (e.g. a rescan) instead of
+# immediately raising "database is locked".
+_BUSY_TIMEOUT_MS = int(os.environ.get("SQLITE_BUSY_TIMEOUT_MS", "5000"))
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artists (
     id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +84,9 @@ def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = %d" % _BUSY_TIMEOUT_MS)
+    if _WAL_ENABLED:
+        conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -147,6 +158,58 @@ def upsert_track(
     )
     row = conn.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,)).fetchone()
     return int(row["id"])
+
+
+# --- Pruning helpers (used by the scanner) --------------------------------
+
+def all_track_paths(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    return conn.execute("SELECT id, file_path FROM tracks").fetchall()
+
+
+def delete_tracks(conn: sqlite3.Connection, track_ids: List[int]) -> int:
+    """Delete tracks by id; cascades to playlist_tracks. Returns rows removed."""
+    if not track_ids:
+        return 0
+    ph = ",".join("?" * len(track_ids))
+    cur = conn.execute("DELETE FROM tracks WHERE id IN (%s)" % ph, track_ids)
+    return cur.rowcount
+
+
+def prune_orphans(conn: sqlite3.Connection) -> List[str]:
+    """Delete albums with no tracks and artists referenced by nothing.
+
+    Returns the cover_paths of removed albums so the caller can unlink the
+    cached image files from disk.
+    """
+    orphan_albums = conn.execute(
+        """
+        SELECT id, cover_path FROM albums
+        WHERE id NOT IN (
+            SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL
+        )
+        """
+    ).fetchall()
+    cover_paths = [r["cover_path"] for r in orphan_albums if r["cover_path"]]
+    conn.execute(
+        """
+        DELETE FROM albums
+        WHERE id NOT IN (
+            SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        DELETE FROM artists
+        WHERE id NOT IN (
+            SELECT DISTINCT artist_id FROM tracks WHERE artist_id IS NOT NULL
+        )
+        AND id NOT IN (
+            SELECT DISTINCT artist_id FROM albums WHERE artist_id IS NOT NULL
+        )
+        """
+    )
+    return cover_paths
 
 
 def rebuild_search_index(conn: sqlite3.Connection) -> None:

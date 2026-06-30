@@ -60,6 +60,20 @@ export default function App() {
     setRescanning(true);
     try {
       await api.rescan();
+      // The scan now runs in the background; poll until it finishes.
+      for (;;) {
+        await new Promise((r) => window.setTimeout(r, 1000));
+        let status;
+        try {
+          status = await api.rescanStatus();
+        } catch {
+          continue; // transient error — keep polling
+        }
+        if (status.status === "idle") {
+          if (status.error) throw new Error(status.error);
+          break;
+        }
+      }
       loadLibrary();
     } catch (e) {
       alert("Rescan failed: " + e);

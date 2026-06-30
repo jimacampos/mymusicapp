@@ -228,7 +228,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             {
               src: window.location.origin + api.coverUrl(current.album_id),
               sizes: "512x512",
-              type: "image/jpeg",
             },
           ]
         : [];

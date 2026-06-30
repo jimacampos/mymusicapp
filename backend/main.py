@@ -4,9 +4,11 @@ from __future__ import annotations
 import mimetypes
 import os
 import re
+import threading
+from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,24 +17,57 @@ from pydantic import BaseModel
 import db
 import scanner
 
-app = FastAPI(title="My Music App")
-
-# In dev the Vite server runs on a different origin; allow it.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Where the built UI lives (overridable for containers/cloud layouts). Computed
+# up front because it also decides whether we're running in "dev" mode below.
+_FRONTEND_DIST = os.environ.get("FRONTEND_DIST") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"
 )
+_SERVE_FRONTEND = os.path.isdir(_FRONTEND_DIST)
 
 
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     db.init_db()
+    yield
+
+
+app = FastAPI(title="My Music App", lifespan=lifespan)
+
+# CORS is only needed in dev, where the Vite dev server runs on a separate
+# origin (:5173) and talks to this API directly. In prod the built UI is served
+# same-origin, so we don't open it up. Force-enable with DEV_CORS=1.
+if os.environ.get("DEV_CORS", "0") == "1" or not _SERVE_FRONTEND:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 def _conn():
     return db.get_connection()
+
+
+# Rescan runs in the background; this lock/state lets us reject overlapping
+# scans and report progress to the UI. The lock is acquired in the request
+# handler and released by the worker thread when the scan finishes.
+_scan_lock = threading.Lock()
+_scan_state: dict = {"status": "idle", "last_counts": None, "error": None}
+
+
+def _run_scan(music_dir: str) -> None:
+    try:
+        _scan_state["last_counts"] = scanner.scan(music_dir)
+        _scan_state["error"] = None
+    except Exception as exc:  # noqa: BLE001 - surface any scan failure to the UI
+        _scan_state["error"] = str(exc)
+    finally:
+        _scan_state["status"] = "idle"
+        _scan_lock.release()
 
 
 @app.get("/api/health")
@@ -204,13 +239,23 @@ def reorder_playlist_tracks(playlist_id: int, body: PlaylistReorder):
         conn.close()
 
 
-@app.post("/api/rescan")
-def rescan():
+@app.post("/api/rescan", status_code=202)
+def rescan(background_tasks: BackgroundTasks):
     music_dir = os.environ.get("MUSIC_DIR")
     if not music_dir:
         raise HTTPException(status_code=400, detail="MUSIC_DIR is not configured")
-    counts = scanner.scan(music_dir)
-    return counts
+    # Non-blocking: a large scan must not tie up the (single) worker. Guard
+    # against overlapping scans so we never have two writers on the SQLite DB.
+    if not _scan_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A scan is already running")
+    _scan_state.update(status="running", error=None)
+    background_tasks.add_task(_run_scan, music_dir)
+    return {"status": "running"}
+
+
+@app.get("/api/rescan/status")
+def rescan_status():
+    return _scan_state
 
 
 @app.get("/api/covers/{album_id}")
@@ -318,10 +363,7 @@ def _iter_file(path: str, start: int, end: int):
 
 
 # --- Serve built frontend in "prod" mode ----------------------------------
-# If frontend/dist exists, serve it as static files at the root. The location
-# can be overridden with FRONTEND_DIST (useful in containers/cloud layouts).
-_FRONTEND_DIST = os.environ.get("FRONTEND_DIST") or os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"
-)
-if os.path.isdir(_FRONTEND_DIST):
+# If frontend/dist exists (computed at import time as _FRONTEND_DIST), serve it
+# as static files at the root so the whole app runs from one process.
+if _SERVE_FRONTEND:
     app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")

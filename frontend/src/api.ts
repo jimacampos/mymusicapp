@@ -46,6 +46,12 @@ export interface Stats {
   tracks: number;
 }
 
+export interface RescanStatus {
+  status: "idle" | "running";
+  last_counts: (Stats & { removed?: number }) | null;
+  error: string | null;
+}
+
 export interface PlaylistSummary {
   id: number;
   name: string;
@@ -99,11 +105,8 @@ export const api = {
   tracks: () => getJSON<Track[]>("/api/tracks"),
   search: (q: string) =>
     getJSON<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
-  rescan: async (): Promise<Stats> => {
-    const res = await fetch("/api/rescan", { method: "POST" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json();
-  },
+  rescan: () => sendJSON<{ status: string }>("/api/rescan", "POST"),
+  rescanStatus: () => getJSON<RescanStatus>("/api/rescan/status"),
   coverUrl: (albumId: number) => `/api/covers/${albumId}`,
   streamUrl: (trackId: number) => `/api/stream/${trackId}`,
 

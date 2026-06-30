@@ -79,6 +79,18 @@ npm run build        # outputs frontend/dist
 When `frontend/dist` exists, the FastAPI server serves it at `http://localhost:8000/`,
 so the whole app runs from a single process.
 
+## Tests
+
+Backend tests (pytest) cover Range streaming, playlist ordering, search, and
+tag parsing:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Configuration
 
 Environment variables (all optional):
@@ -91,6 +103,9 @@ Environment variables (all optional):
 | `COVERS_DIR` | `$DATA_DIR/covers`   | Cached cover art                         |
 | `FRONTEND_DIST` | `../frontend/dist` | Built UI to serve (override for containers) |
 | `PORT`       | `8000`               | Port uvicorn binds (set by the Docker image) |
+| `DEV_CORS`   | `0`                  | Set `1` to allow the Vite dev origin (auto-on when no built UI is present) |
+| `SQLITE_WAL` | `0`                  | Set `1` for WAL journaling (local only — **not** on the Azure SMB share) |
+| `SQLITE_BUSY_TIMEOUT_MS` | `5000`   | How long to wait on a locked DB before erroring |
 
 ## API
 
@@ -102,7 +117,8 @@ Environment variables (all optional):
 | GET    | `/api/search?q=`      | FTS search (artists/albums/tracks)   |
 | GET    | `/api/stream/{id}`    | Stream audio (supports Range)        |
 | GET    | `/api/covers/{id}`    | Album cover image                    |
-| POST   | `/api/rescan`         | Re-scan `MUSIC_DIR`                  |
+| POST   | `/api/rescan`         | Start a background re-scan of `MUSIC_DIR` (returns `202`; `409` if one is already running) |
+| GET    | `/api/rescan/status`  | Current scan state `{status, last_counts, error}` |
 | GET    | `/api/stats`          | Library counts                       |
 | GET    | `/api/playlists`      | List playlists                       |
 | POST   | `/api/playlists`      | Create a playlist `{name}`           |

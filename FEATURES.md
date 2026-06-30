@@ -5,6 +5,34 @@ up to date** — see the maintenance note at the bottom.
 
 Newest entries go at the top. Use the date the change was made.
 
+## 2026-06-24 — Reliability fixes (covers, rescan, tests)
+
+Code-review remediation pass — mostly backend hardening plus a user-visible
+cover-art fix.
+
+- **AAC/ALAC cover art now works:** fixed a bug where embedded artwork in
+  `.m4a`/`.mp4` files was silently dropped during scanning (a bad `MP4Cover`
+  reference swallowed by a broad `except`).
+- **Rescan no longer blocks the app:** `POST /api/rescan` now runs in the
+  background and returns `202` immediately (rejecting overlapping scans with
+  `409`); the UI polls the new `GET /api/rescan/status` to completion. Prevents
+  a large library scan from freezing the single-worker server.
+- **Rescan prunes deleted files:** tracks removed from disk (and their now-empty
+  albums, artists, and cached covers) are cleaned up on rescan instead of
+  lingering as dead entries.
+- **SQLite robustness:** added `busy_timeout` (and opt-in WAL for local use) so
+  concurrent reads during a scan don't immediately error with "database is
+  locked".
+- **CORS tightened:** the wildcard origin is now limited to the Vite dev origin
+  and only enabled in dev.
+- **Backend test suite:** added `pytest` tests (`backend/tests/`) for Range
+  parsing, playlist reorder/compaction, FTS search, and tag parsing; see
+  `requirements-dev.txt`.
+- **Internal:** migrated the deprecated `@app.on_event("startup")` to a FastAPI
+  `lifespan` handler.
+
+---
+
 ## 2026-06-24 — Playlists
 
 Added user-created playlists, stored server-side in SQLite.

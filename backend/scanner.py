@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 from mutagen import File as MutagenFile
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
 
 import db
 
@@ -73,7 +73,7 @@ def _extract_cover_bytes(path: str, audio) -> Optional[Tuple[bytes, str]]:
             if covers:
                 cov = covers[0]
                 fmt = getattr(cov, "imageformat", None)
-                ext2 = ".png" if fmt == MP4.MP4Cover.FORMAT_PNG else ".jpg"
+                ext2 = ".png" if fmt == MP4Cover.FORMAT_PNG else ".jpg"
                 return bytes(cov), ext2
     except Exception:
         return None
@@ -105,7 +105,7 @@ def scan(music_dir: str) -> dict:
 
     scanned = 0
     skipped = 0
-    pending_covers = {}  # album_id -> (bytes, ext) captured before we know album_id
+    seen_paths: set[str] = set()
 
     for root, _dirs, files in os.walk(music_dir):
         for name in sorted(files):
@@ -149,16 +149,36 @@ def scan(music_dir: str) -> dict:
             db.upsert_track(
                 conn, title, album_id, track_artist_id, track_no, duration, path
             )
+            seen_paths.add(path)
             scanned += 1
+
+    removed = _prune_missing(conn, seen_paths)
 
     db.rebuild_search_index(conn)
     conn.commit()
     counts = db.stats(conn)
     conn.close()
 
-    print("Scanned %d tracks (%d skipped)." % (scanned, skipped))
+    print("Scanned %d tracks (%d skipped, %d removed)." % (scanned, skipped, removed))
     print("Library: %(artists)d artists, %(albums)d albums, %(tracks)d tracks." % counts)
+    counts["removed"] = removed
     return counts
+
+
+def _prune_missing(conn, seen_paths: set) -> int:
+    """Remove tracks no longer present on disk, plus newly-orphaned albums,
+    artists, and their cached cover files. Returns the track removal count."""
+    stale_ids = [
+        row["id"] for row in db.all_track_paths(conn) if row["file_path"] not in seen_paths
+    ]
+    removed = db.delete_tracks(conn, stale_ids)
+    if removed:
+        for cover_path in db.prune_orphans(conn):
+            try:
+                os.remove(cover_path)
+            except OSError:
+                pass
+    return removed
 
 
 def main() -> None:
